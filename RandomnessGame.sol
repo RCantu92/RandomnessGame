@@ -1,143 +1,243 @@
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.5.0;
 
 import "https://github.com/starkware-libs/veedo/blob/master/contracts/BeaconContract.sol";
-// import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/c4bb7b7bb9f09534bf010f6bf6f0d85bf2bf1caa/contracts/math/SafeMath.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/c4bb7b7bb9f09534bf010f6bf6f0d85bf2bf1caa/contracts/math/SafeMath.sol";
 
-contract randomnessGame {
+/**
+ * @title Randomness Game
+ * @notice 
+ */
+contract RandomnessGame {
     
     address veedoBeaconAddress;
+    address owner;
     
     uint8 public guessOne; // Make private for end
     uint8 public guessTwo; // Make private for end
-    uint public targetNumber; // not public after testing, put inside playGame()
+    uint public targetNumber; // Make private for end
     
-    bool public hasFirstGuess = false;
-    bool public hasSecondGuess = false;
+    bool hasFirstGuess = false;
+    bool hasSecondGuess = false;
     
     address payable public playerOne;
     address payable public playerTwo;
     address public winningAddress;
-    bool activeGame = false;
+    
+    bool public isGameActive = false;
+    bool public tieGame = false;
     
     event addedPlayer(address _player);
     event winningsDispersed(address _winner, uint _winnings);
     
-    function setBeaconContractAddress(address _address) private {
-        veedoBeaconAddress = _address;
+    modifier onlyOwner() {
+        require(msg.sender == owner);
+        _;
     }
     
-    // 1. Create contract and enter VeeDo Beacon contract
-    // address to call its random function
+    /**
+     * @notice Constructor function that will take the beacon address
+     *  and call setBeaconContractAddress() to set it to the variable.
+     * It will also set the creator of the contract as the owner.
+     * @param _veedoBeaconAddress address of the VeeDo beacon that
+     * will provide randomness.
+     */
     constructor(address _veedoBeaconAddress) public {
         setBeaconContractAddress(_veedoBeaconAddress);
+        owner = msg.sender;
     }
     
-    // 2. Player will check if there a submitted
-    // game with funds in it.
-    function isGameActive() public view returns(bool) {
-        return activeGame;
+    /**
+     * @notice Fallback function that returns funds sent to
+     * it on accident.
+     */
+    function () external payable {
+        msg.sender.transfer(msg.value);
     }
     
-    // Make private and view at end. Only public for testing
-    function getRandomNumber() public /*private view*/ returns(uint) {
-        BeaconContract veedoBeacon = BeaconContract(veedoBeaconAddress);
-        (uint latestBlockNumber, bytes32 registeredRandomness) = veedoBeacon.getLatestRandomness();
-        uint randomNumber = uint(registeredRandomness);
-        // if greater than 100, divide by uint(getLatestRandomness)
-        targetNumber = uint8(randomNumber * now); // Pass it on to return
-        //return randomNumber;
-    }
-    
-    function resetGame() private {
+    /**
+     * @notice Function that resets the game by
+     * clearing all relevant variables.
+     */
+    function resetGame() public onlyOwner() {
         guessOne = 0;
         guessTwo = 0;
-        playerOne = address(0);
-        playerTwo = address(0);
         hasFirstGuess = false;
         hasSecondGuess = false;
-        activeGame = false;
+        playerOne = address(0);
+        playerTwo = address(0);
+        isGameActive = false;
+        tieGame = false;
     }
     
-    // 3. If game is inactive, submit funds and
-    // a number between 0 - 255.
-    function playGame(uint8 _guess) public payable returns(string memory) {
-        // 3a. Verify 0.02 ether have been sent
-        // (0.1 ether for testing only)
+    /**
+     * @notice Function calle to play the game. Game requires
+     * two players to try to guess a random number between
+     * 0-255. Whoever is closest, wins the total price of entry
+     * of all players.
+     * @param _guess a uint8 guess to try to be the closest
+     * to a randomly generated number.
+     */
+    function playGame(uint8 _guess) public payable {
+        // Verify 0.1 ether have been sent.
+        // (0.1 ether for testing only,
+        // 0.02 ether will be the normal amount)
         require(msg.value == 0.1 ether);
         
-        // 3b. Confirm the guess is valid (0-255)
+        // Confirm the guess is valid (0-255)
         require(_guess < 256);
         
-        // 3c. Submit guess as valid for second player
-        // if first player has guessed already
-        if(guessOne > 0) {
+        // Submit guess as valid for second player
+        // if first player has guessed already.
+        if (hasFirstGuess == true) {
             guessTwo = _guess;
             playerTwo = msg.sender;
             hasSecondGuess = true;
-            activeGame = true;
+            isGameActive = true;
             emit addedPlayer(msg.sender);
-            // 3d. After both guesses have been
-            // submitted, calculate the
-            // target number.
-            // targetNumber = getRandomNumber();  Keep line for final version
+            // After both guesses have been
+            // submitted, calculate the target number.
+            targetNumber = getRandomNumber();
         // If guess one has not been declared,
         // set equal to function argument.
         } else {
             guessOne = _guess;
             playerOne = msg.sender;
             hasFirstGuess = true;
-            activeGame = true;
+            isGameActive = true;
             emit addedPlayer(msg.sender);
         }
         
-        // 3e. Compare the guesses to the
+        // Compare the guesses to the
         // target number, decide the winner
         // and disperse the winnings.
-        if(hasFirstGuess == true && hasSecondGuess == true) {
-            if(
-                (targetNumber - guessOne) < (targetNumber - guessTwo) ||
-                (guessOne - targetNumber) < (guessTwo - targetNumber) ||
-                (targetNumber - guessOne) < (guessTwo - targetNumber) ||
-                (guessOne - targetNumber) < (targetNumber - guessTwo)
-                /*
-                (SafeMath.sub(targetNumber, guessOne)) < (SafeMath.sub(targetNumber, guessTwo)) ||
-                (SafeMath.sub(guessOne, targetNumber)) < (SafeMath.sub(guessTwo, targetNumber)) ||
-                (SafeMath.sub(targetNumber, guessOne)) < (SafeMath.sub(guessTwo, guessTwo)) ||
-                (SafeMath.sub(guessOne, targetNumber)) < (SafeMath.sub(targetNumber, guessTwo))
-                */
+        if (
+            hasFirstGuess == true && hasSecondGuess == true
+        ) {
+            if (
+                guessOne == guessTwo
             ) {
-                emit winningsDispersed(playerOne, address(this).balance);
-                winningAddress = playerOne;
-                playerOne.transfer(address(this).balance);
-                // resetGame();
-            } else if (
-                (targetNumber - guessTwo) < (targetNumber - guessOne) ||
-                (guessTwo - targetNumber) < (guessOne - targetNumber) ||
-                (targetNumber - guessTwo) < (guessOne - targetNumber) ||
-                (guessTwo - targetNumber) < (targetNumber - guessOne)
-                /*
-                (SafeMath.sub(targetNumber, guessTwo)) < (SafeMath.sub(targetNumber, guessOne)) ||
-                (SafeMath.sub(guessTwo, targetNumber)) < (SafeMath.sub(guessOne, targetNumber)) ||
-                (SafeMath.sub(targetNumber, guessTwo)) < (SafeMath.sub(guessOne, targetNumber)) ||
-                (SafeMath.sub(guessTwo, targetNumber)) < (SafeMath.sub(targetNumber, guessOne))
-                */
-            ) {
-                emit winningsDispersed(playerTwo, address(this).balance);
-                winningAddress = playerTwo;
-                playerTwo.transfer(address(this).balance);
-                // resetGame();
-            } else {
+                tieGame = true;
                 playerOne.transfer((address(this).balance) / 2);
                 playerTwo.transfer((address(this).balance) / 2);
-                // resetGame();
+            } else if (
+                (guessOne < targetNumber) &&
+                (guessTwo < targetNumber)
+            ) {
+                if (
+                    (SafeMath.sub(targetNumber, guessOne)) <
+                    (SafeMath.sub(targetNumber, guessTwo))
+                ) {
+                    awardWinner(playerOne);
+                } else if (
+                    (SafeMath.sub(targetNumber, guessTwo)) <
+                    (SafeMath.sub(targetNumber, guessOne))
+                ) {
+                    awardWinner(playerTwo);
+                }
+            } else if (
+                (guessOne > targetNumber) &&
+                (guessTwo > targetNumber)
+            ) {
+                if (
+                    (SafeMath.sub(guessOne, targetNumber)) <
+                    (SafeMath.sub(guessTwo, targetNumber))
+                ) {
+                    awardWinner(playerOne);
+                } else if (
+                    (SafeMath.sub(guessTwo, targetNumber)) <
+                    (SafeMath.sub(guessOne, targetNumber))
+                ) {
+                    awardWinner(playerTwo);
+                }
+            } else if (
+                (guessOne > targetNumber) &&
+                (guessTwo < targetNumber)
+            ) {
+                if (
+                    (SafeMath.sub(guessOne, targetNumber)) <
+                    (SafeMath.sub(targetNumber, guessTwo))
+                ) {
+                    awardWinner(playerOne);
+                } else if (
+                    (SafeMath.sub(targetNumber, guessTwo)) <
+                    (SafeMath.sub(guessOne, targetNumber))
+                ) {
+                    awardWinner(playerTwo);
+                }
+            } else if (
+                (guessOne < targetNumber) &&
+                (guessTwo > targetNumber)
+            ) {
+                if (
+                    (SafeMath.sub(targetNumber, guessOne)) <
+                    (SafeMath.sub(guessTwo, targetNumber))
+                ) {
+                    awardWinner(playerOne);
+                } else if (
+                    (SafeMath.sub(guessTwo, targetNumber)) <
+                    (SafeMath.sub(targetNumber, guessOne))
+                ) {
+                    awardWinner(playerTwo);
+                }
             }
-        } else {
-            return "Not enough players.";
         }
     }
     
+    // @notice Function to withdraw funds in case game
+    // doesn't work as expected. Only for testing.
     function withdrawFunds() public {
         msg.sender.transfer(address(this).balance);
     }
     
+    /*
+     * @notice Setter function that adds randomness beacon
+     * address to previously declared address variable
+     * @param _address address of the beacon that
+     * will provide randomness.
+     */
+    function setBeaconContractAddress(address _address) private {
+        veedoBeaconAddress = _address;
+    }
+    
+    /**
+     * @notice Function that sends out funds to
+     * winning address.
+     * @param _player address of the winning
+     * player to receive funds.
+     */
+    function awardWinner(address payable _player) private {
+        emit winningsDispersed(_player, address(this).balance);
+        winningAddress = _player;
+        _player.transfer(address(this).balance);
+    }
+    
+    /**
+     * @notice Function called to generate new randon number
+     * from beacon contract, that will then be converted
+     * into a uint8.
+     * @return uint the randomly generated number.
+     */
+    function getRandomNumber() private view returns(uint) {
+        BeaconContract veedoBeacon = BeaconContract(veedoBeaconAddress);
+        (uint latestBlockNumber, bytes32 registeredRandomness) = veedoBeacon.getLatestRandomness();
+        uint randomNumber = uint(registeredRandomness);
+        randomNumber = uint8(randomNumber * now);
+        return randomNumber;
+    }
+    
+    /*
+    Test to find out the random number generated is the same
+    for everybody who calls the function. It's a problem since
+    the function is public.
+    
+    uint public beaconRandomNumber;
+    
+    function getBeaconRandomNumber() public {
+        BeaconContract veedoBeacon = BeaconContract(veedoBeaconAddress);
+        (uint latestBlockNumber, bytes32 registeredRandomness) = veedoBeacon.getLatestRandomness();
+        uint RandomNumber = uint(registeredRandomness);
+        beaconRandomNumber = uint8(RandomNumber);
+    }
+    */
 }
