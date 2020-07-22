@@ -6,7 +6,10 @@ import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/c4bb7b7bb9f0
 
 /**
  * @title Randomness Game
- * @notice 
+ * @notice Contract to play the game. Game requires
+ * two players to try to guess a random number between
+ * 0-255. Whoever is closest, wins the total price of entry
+ * of both players.
  */
 contract RandomnessGame {
     
@@ -20,16 +23,20 @@ contract RandomnessGame {
     bool hasFirstGuess = false;
     bool hasSecondGuess = false;
     
-    address payable public playerOne;
-    address payable public playerTwo;
+    address payable public playerOne; // Make private for end
+    address payable public playerTwo; // Make private for end
     address public winningAddress;
     
     bool public isGameActive = false;
     bool public tieGame = false;
     
+    uint public coolDownTime; // Make private for end
+    uint public blockNow = block.number; // Delete. For testing only.
+    
     event addedPlayer(address _player);
     event winningsDispersed(address _winner, uint _winnings);
     
+    // Modifier not needed after demo
     modifier onlyOwner() {
         require(msg.sender == owner);
         _;
@@ -44,7 +51,7 @@ contract RandomnessGame {
      */
     constructor(address _veedoBeaconAddress) public {
         setBeaconContractAddress(_veedoBeaconAddress);
-        owner = msg.sender;
+        owner = msg.sender; // delete after demo
     }
     
     /**
@@ -59,19 +66,22 @@ contract RandomnessGame {
      * @notice Function that resets the game by
      * clearing all relevant variables.
      */
-    function resetGame() public onlyOwner() {
+    function resetGame() public /*private*/ onlyOwner() /*delete modifier*/ {
         guessOne = 0;
         guessTwo = 0;
+        targetNumber = 0;
         hasFirstGuess = false;
         hasSecondGuess = false;
         playerOne = address(0);
         playerTwo = address(0);
+        winningAddress = address(0);
         isGameActive = false;
         tieGame = false;
+        blockNow = block.number; // Delete. For testing only.
     }
     
     /**
-     * @notice Function calle to play the game. Game requires
+     * @notice Function called to play the game. Game requires
      * two players to try to guess a random number between
      * 0-255. Whoever is closest, wins the total price of entry
      * of all players.
@@ -79,6 +89,13 @@ contract RandomnessGame {
      * to a randomly generated number.
      */
     function playGame(uint8 _guess) public payable {
+        // Verifying that 240 blocks has passed since
+        // the last randomly generated number.
+        require(
+            block.number > (coolDownTime + 240),
+            "Not enough time has passed to play again."
+        );
+        
         // Verify 0.1 ether have been sent.
         // (0.1 ether for testing only,
         // 0.02 ether will be the normal amount)
@@ -181,6 +198,15 @@ contract RandomnessGame {
                     awardWinner(playerTwo);
                 }
             }
+            
+            // resetGame();
+            
+            // Calling and setting the value of the latest 
+            // block to provide a random number to begin
+            // a cool down period until the next pulse.
+            BeaconContract veedoBeacon = BeaconContract(veedoBeaconAddress);
+            (uint latestBlockNumber, bytes32 registeredRandomness) = veedoBeacon.getLatestRandomness();
+            coolDownTime = latestBlockNumber;
         }
     }
     
@@ -222,22 +248,7 @@ contract RandomnessGame {
         BeaconContract veedoBeacon = BeaconContract(veedoBeaconAddress);
         (uint latestBlockNumber, bytes32 registeredRandomness) = veedoBeacon.getLatestRandomness();
         uint randomNumber = uint(registeredRandomness);
-        randomNumber = uint8(randomNumber * now);
+        randomNumber = uint8(randomNumber);
         return randomNumber;
     }
-    
-    /*
-    Test to find out the random number generated is the same
-    for everybody who calls the function. It's a problem since
-    the function is public.
-    
-    uint public beaconRandomNumber;
-    
-    function getBeaconRandomNumber() public {
-        BeaconContract veedoBeacon = BeaconContract(veedoBeaconAddress);
-        (uint latestBlockNumber, bytes32 registeredRandomness) = veedoBeacon.getLatestRandomness();
-        uint RandomNumber = uint(registeredRandomness);
-        beaconRandomNumber = uint8(RandomNumber);
-    }
-    */
 }
